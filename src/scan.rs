@@ -101,21 +101,86 @@ pub fn scan(cfg: &ScanConfig) -> Vec<Host> {
             live.insert(entry.ip);
         }
     }
+    let live: Vec<Ipv4Addr> = live.into_iter().collect();
+
+    // Reverse-DNS the live hosts the ARP cache did not already name. Many home
+    // routers publish no PTR records, in which case this simply finds nothing.
+    let unnamed: Vec<Ipv4Addr> = live
+        .iter()
+        .copied()
+        .filter(|ip| arp.get(ip).and_then(|e| e.hostname.as_ref()).is_none())
+        .collect();
+    let resolved = resolve_hostnames(&unnamed, cfg.concurrency);
 
     live.into_iter()
-        .map(|ip| assemble_host(ip, open.get(&ip).cloned(), arp.get(&ip)))
+        .map(|ip| {
+            assemble_host(
+                ip,
+                open.get(&ip).cloned(),
+                arp.get(&ip),
+                resolved.get(&ip).cloned(),
+            )
+        })
         .collect()
 }
 
-fn assemble_host(ip: Ipv4Addr, open_ports: Option<Vec<Port>>, arp: Option<&ArpEntry>) -> Host {
+fn assemble_host(
+    ip: Ipv4Addr,
+    open_ports: Option<Vec<Port>>,
+    arp: Option<&ArpEntry>,
+    resolved: Option<String>,
+) -> Host {
     let mac = arp.and_then(|entry| entry.mac.clone());
     let vendor = mac.as_deref().and_then(vendor_for_mac).map(str::to_string);
     Host {
         ip,
         vendor,
         mac,
-        hostname: arp.and_then(|entry| entry.hostname.clone()),
+        // Prefer the ARP-provided name; fall back to reverse DNS.
+        hostname: arp.and_then(|entry| entry.hostname.clone()).or(resolved),
         open_ports: open_ports.unwrap_or_default(),
+    }
+}
+
+/// Reverse-resolve hostnames for the given IPs concurrently, reusing the same
+/// bounded worker model as the port scan so a slow resolver never serializes
+/// the whole batch. Addresses with no usable PTR record are omitted.
+fn resolve_hostnames(ips: &[Ipv4Addr], concurrency: usize) -> HashMap<Ipv4Addr, String> {
+    if ips.is_empty() {
+        return HashMap::new();
+    }
+    let next = AtomicUsize::new(0);
+    let found: Mutex<HashMap<Ipv4Addr, String>> = Mutex::new(HashMap::new());
+    let workers = concurrency.clamp(1, ips.len());
+
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(&ip) = ips.get(index) else {
+                        break;
+                    };
+                    if let Some(name) = reverse_dns(ip) {
+                        found.lock().expect("dns mutex poisoned").insert(ip, name);
+                    }
+                }
+            });
+        }
+    });
+
+    found.into_inner().expect("dns mutex poisoned")
+}
+
+/// Best-effort reverse DNS for one address. `lookup_addr` returns the numeric
+/// IP string when there is no PTR record, so that (and the raw arpa form) is
+/// filtered out to keep results honest.
+fn reverse_dns(ip: Ipv4Addr) -> Option<String> {
+    let name = dns_lookup::lookup_addr(&IpAddr::V4(ip)).ok()?;
+    if name.is_empty() || name == ip.to_string() || name.ends_with(".in-addr.arpa") {
+        None
+    } else {
+        Some(name)
     }
 }
 
@@ -236,9 +301,21 @@ mod tests {
             mac: Some("B8:27:EB:11:22:33".to_string()),
             hostname: Some("pi.home".to_string()),
         };
-        let host = assemble_host(Ipv4Addr::new(192, 168, 1, 5), None, Some(&arp));
+        let host = assemble_host(Ipv4Addr::new(192, 168, 1, 5), None, Some(&arp), None);
         assert_eq!(host.vendor.as_deref(), Some("Raspberry Pi"));
         assert_eq!(host.hostname.as_deref(), Some("pi.home"));
         assert!(host.open_ports.is_empty());
+    }
+
+    #[test]
+    fn reverse_dns_falls_back_when_arp_has_no_name() {
+        // No ARP hostname, but reverse DNS resolved one: it should be used.
+        let host = assemble_host(
+            Ipv4Addr::new(192, 168, 1, 9),
+            None,
+            None,
+            Some("printer.local".to_string()),
+        );
+        assert_eq!(host.hostname.as_deref(), Some("printer.local"));
     }
 }
