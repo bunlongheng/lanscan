@@ -9,15 +9,17 @@
 Point it at your home network and it discovers what is actually online: live hosts, their open ports and likely services, hardware (MAC) addresses, and vendor guesses (Raspberry Pi, Apple, Philips Hue, printers, and more). No root, no raw sockets, no external services.
 
 ```
-IP          HOSTNAME  VENDOR        OPEN PORTS
-----------  --------  ------------  ------------------------------------------------
-10.0.0.1    -         -             53/dns
-10.0.0.22   -         -             80/http, 443/https, 515/printer, 631/ipp, 9100/printer-raw
-10.0.0.89   -         Philips Hue   80/http, 443/https
-10.0.0.93   pi.hole   Raspberry Pi  22/ssh, 53/dns, 80/http
+IP             HOSTNAME    VENDOR        OPEN PORTS
+-------------  ----------  ------------  ------------------------------------------------
+192.168.1.1    -           Netgear       53/dns, 80/http, 443/https
+192.168.1.20   -           -             80/http, 443/https, 515/printer, 631/ipp, 9100/printer-raw
+192.168.1.42   -           Philips Hue   80/http, 443/https
+192.168.1.77   media.home  Raspberry Pi  22/ssh, 80/http, 32400/plex
 
-60 host(s) up.
+12 host(s) up.
 ```
+
+<sub>(example output; addresses and vendors are illustrative)</sub>
 
 ## Why
 
@@ -57,7 +59,7 @@ cargo build --release
 lanscan scan
 
 # Scan a specific network, custom ports, as JSON
-lanscan scan --cidr 10.0.0.0/24 --ports 22,80,443 --json
+lanscan scan --cidr 192.168.1.0/24 --ports 22,80,443 --json
 
 # Tune the probe
 lanscan scan --cidr 192.168.1.0/24 --timeout-ms 300 --concurrency 512
