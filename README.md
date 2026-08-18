@@ -8,16 +8,7 @@
 
 Point it at your home network and it discovers what is actually online: live hosts, their open ports and likely services, hardware (MAC) addresses, and vendor guesses (Raspberry Pi, Apple, Philips Hue, printers, and more). No root, no raw sockets, no external services.
 
-```
-IP             HOSTNAME    VENDOR        OPEN PORTS
--------------  ----------  ------------  ------------------------------------------------
-192.168.1.1    -           Netgear       53/dns, 80/http, 443/https
-192.168.1.20   -           -             80/http, 443/https, 515/printer, 631/ipp, 9100/printer-raw
-192.168.1.42   -           Philips Hue   80/http, 443/https
-192.168.1.77   media.home  Raspberry Pi  22/ssh, 80/http, 32400/plex
-
-12 host(s) up.
-```
+![lanscan scanning a local network](docs/screenshots/scan.png)
 
 <sub>(example output; addresses and vendors are illustrative)</sub>
 
