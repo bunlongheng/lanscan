@@ -5,6 +5,7 @@ use lanscan::net::{cidr_hosts, default_cidr};
 use lanscan::output::{to_json, to_table};
 use lanscan::scan::{ScanConfig, scan};
 use lanscan::services::{DEFAULT_PORTS, parse_ports};
+use std::io::IsTerminal;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -57,6 +58,17 @@ struct ScanArgs {
     json: bool,
 }
 
+impl Default for NetArgs {
+    fn default() -> Self {
+        NetArgs {
+            cidr: None,
+            ports: None,
+            timeout_ms: 400,
+            concurrency: 256,
+        }
+    }
+}
+
 impl NetArgs {
     /// Resolve these arguments into a validated [`ScanConfig`].
     fn into_config(self) -> Result<ScanConfig, String> {
@@ -85,12 +97,7 @@ impl NetArgs {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let result = match cli.command.unwrap_or(Command::Tui(NetArgs {
-        cidr: None,
-        ports: None,
-        timeout_ms: 400,
-        concurrency: 256,
-    })) {
+    let result = match cli.command.unwrap_or_else(default_command) {
         Command::Scan(args) => run_scan(args),
         Command::Tui(net) => run_tui(net),
         Command::Mcp => lanscan::mcp::serve_stdio().map_err(|e| e.to_string()),
@@ -102,6 +109,20 @@ fn main() -> ExitCode {
             eprintln!("lanscan: {message}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The action for a bare `lanscan` with no subcommand: the interactive TUI when
+/// attached to a real terminal, otherwise a plain table scan so pipes, redirects,
+/// scripts, and non-interactive SSH still get useful output instead of a crash.
+fn default_command() -> Command {
+    if std::io::stdout().is_terminal() {
+        Command::Tui(NetArgs::default())
+    } else {
+        Command::Scan(ScanArgs {
+            net: NetArgs::default(),
+            json: false,
+        })
     }
 }
 

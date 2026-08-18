@@ -143,7 +143,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 }
 
 fn draw_table(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
-    let header = Row::new(["IP", "HOSTNAME", "VENDOR", "OPEN PORTS"]).style(
+    let header = Row::new(["IP", "MAC", "HOSTNAME", "VENDOR", "OPEN PORTS"]).style(
         Style::default()
             .add_modifier(Modifier::BOLD)
             .fg(Color::Cyan),
@@ -164,6 +164,7 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
             };
             Row::new(vec![
                 Cell::from(host.ip.to_string()),
+                Cell::from(host.mac.clone().unwrap_or_else(|| "-".into())),
                 Cell::from(host.hostname.clone().unwrap_or_else(|| "-".into())),
                 Cell::from(host.vendor.clone().unwrap_or_else(|| "-".into())),
                 Cell::from(ports),
@@ -173,8 +174,9 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
 
     let widths = [
         Constraint::Length(16),
-        Constraint::Length(24),
-        Constraint::Length(20),
+        Constraint::Length(18),
+        Constraint::Length(22),
+        Constraint::Length(18),
         Constraint::Min(20),
     ];
 

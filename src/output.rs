@@ -19,8 +19,8 @@ pub fn to_table(hosts: &[Host]) -> String {
         return "No live hosts found.".to_string();
     }
 
-    let rows: Vec<[String; 4]> = hosts.iter().map(row_for).collect();
-    let headers = ["IP", "HOSTNAME", "VENDOR", "OPEN PORTS"];
+    let rows: Vec<[String; 5]> = hosts.iter().map(row_for).collect();
+    let headers = ["IP", "MAC", "HOSTNAME", "VENDOR", "OPEN PORTS"];
 
     // Compute each column width from the header and every cell.
     let mut widths = headers.map(str::len);
@@ -35,7 +35,7 @@ pub fn to_table(hosts: &[Host]) -> String {
     let divider: Vec<String> = widths.iter().map(|w| "-".repeat(*w)).collect();
     push_row(
         &mut out,
-        &divider.try_into().expect("four columns"),
+        &divider.try_into().expect("five columns"),
         &widths,
     );
     for row in &rows {
@@ -46,7 +46,7 @@ pub fn to_table(hosts: &[Host]) -> String {
     out
 }
 
-fn row_for(host: &Host) -> [String; 4] {
+fn row_for(host: &Host) -> [String; 5] {
     let ports = if host.open_ports.is_empty() {
         "-".to_string()
     } else {
@@ -61,13 +61,14 @@ fn row_for(host: &Host) -> [String; 4] {
     };
     [
         host.ip.to_string(),
+        host.mac.clone().unwrap_or_else(|| "-".to_string()),
         host.hostname.clone().unwrap_or_else(|| "-".to_string()),
         host.vendor.clone().unwrap_or_else(|| "-".to_string()),
         ports,
     ]
 }
 
-fn push_row(out: &mut String, cells: &[String; 4], widths: &[usize; 4]) {
+fn push_row(out: &mut String, cells: &[String; 5], widths: &[usize; 5]) {
     for (i, cell) in cells.iter().enumerate() {
         let pad = widths[i].saturating_sub(cell.chars().count());
         out.push_str(cell);
@@ -107,6 +108,7 @@ mod tests {
     fn table_contains_key_fields() {
         let table = to_table(&sample());
         assert!(table.contains("192.168.1.1"));
+        assert!(table.contains("AC:BC:32:00:00:00"));
         assert!(table.contains("router.home"));
         assert!(table.contains("80/http"));
         assert!(table.contains("1 host(s) up."));
