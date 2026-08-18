@@ -1,6 +1,5 @@
 # LAN Scan
 
-[![CI](https://github.com/bunlongheng/lanscan/actions/workflows/ci.yml/badge.svg)](https://github.com/bunlongheng/lanscan/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -147,10 +146,18 @@ flowchart LR
 ## Development
 
 ```bash
+./scripts/ci.sh        # runs fmt check + clippy + tests (the CI gate)
+
+# or individually:
 cargo test --all       # unit + end-to-end tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 ```
+
+CI is defined in `.circleci/config.yml` but is currently **run manually** via
+`./scripts/ci.sh`. The CircleCI project is intentionally left unconnected until
+the monthly billing quota resets; connecting it on
+[app.circleci.com](https://app.circleci.com) is all that is needed to activate it.
 
 ## License
 
