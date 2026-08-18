@@ -27,9 +27,9 @@ model can scan your network as a tool call.
 - **Three interfaces, one core** - `scan` (CLI), `tui` (interactive), `mcp` (agent-callable), all sharing the same scanning library.
 - **No root required** - TCP-connect discovery plus ARP-cache enrichment; no raw sockets.
 - **Fast and bounded** - a fixed pool of worker threads probes every host/port pair concurrently, so wall-clock time tracks the slowest single probe, not the sum.
-- **Useful identity** - MAC address, resolved hostname, vendor guess from a curated OUI table, and service names for open ports.
+- **Useful identity** - MAC address, vendor from a curated OUI table (~8.5k consumer prefixes), reverse-DNS hostname, and service names for open ports.
 - **JSON or table** - human table by default, `--json` for scripting.
-- **Tiny footprint** - four runtime dependencies, `#![forbid(unsafe_code)]`, LTO release build.
+- **Tiny footprint** - five runtime dependencies, `#![forbid(unsafe_code)]`, LTO release build.
 
 ## Install
 
@@ -128,8 +128,9 @@ flowchart LR
 1. **Expand** the target CIDR into host addresses.
 2. **Probe** every host/port pair over a bounded thread pool using
    `TcpStream::connect_timeout`. A completed connection means the port is open.
-3. **Enrich** from the ARP cache (`arp -a`): MAC address, hostname, and a vendor
-   guess by OUI prefix.
+3. **Enrich** from the ARP cache (`arp -a`): MAC address and a vendor guess by
+   OUI prefix. Live hosts the ARP cache did not name are reverse-resolved via
+   the system resolver (concurrently, so DNS never serializes the scan).
 4. A host is **live** if it answered any probe or has a resolved ARP entry in
    range. Incomplete ARP entries are ignored so the results stay honest.
 
@@ -140,7 +141,7 @@ flowchart LR
 | TCP connect, not raw ICMP | Runs unprivileged on macOS and Linux |
 | `std` threads, no async runtime | Smaller dep tree and binary; the work is I/O-bound and bounded |
 | Hand-rolled MCP over stdio | No SDK version churn; the protocol surface is tiny and fully unit-tested |
-| Curated OUI table, not the full registry | Keeps the binary small; unknown vendors resolve to `None`, never a wrong guess |
+| Curated OUI table (consumer brands), not the full registry | Covers home devices while staying small; prefixes are packed `u32` + a name index and binary-searched. Unknown prefixes resolve to `None`, never a wrong guess |
 | Ignore incomplete ARP entries | macOS caches unresolved neighbors for the whole subnet; counting them would report phantom hosts |
 
 ## Development
