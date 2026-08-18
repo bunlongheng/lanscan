@@ -2,7 +2,8 @@
 //!
 //! The scan runs on a background thread so the interface stays responsive; a
 //! channel delivers the results back to the render loop. Keys: `r` rescans,
-//! `q`/`Esc` quits, and the arrow keys move the selection.
+//! `/` filters across every field, the arrow keys move the selection, and `q`
+//! quits.
 
 use crate::scan::{Host, ScanConfig, scan};
 
@@ -22,6 +23,10 @@ struct App {
     hosts: Vec<Host>,
     scanning: bool,
     selected: TableState,
+    /// Current filter text; empty means show everything.
+    filter: String,
+    /// True while the user is typing into the filter.
+    input_mode: bool,
     results_rx: Receiver<Vec<Host>>,
     results_tx: Sender<Vec<Host>>,
 }
@@ -34,11 +39,33 @@ impl App {
             hosts: Vec::new(),
             scanning: false,
             selected: TableState::default(),
+            filter: String::new(),
+            input_mode: false,
             results_rx: rx,
             results_tx: tx,
         };
         app.start_scan();
         app
+    }
+
+    /// Hosts matching the current filter, in display order.
+    fn visible(&self) -> Vec<&Host> {
+        self.hosts
+            .iter()
+            .filter(|h| h.matches(&self.filter))
+            .collect()
+    }
+
+    /// Keep the selection within the visible rows, selecting the first row when
+    /// nothing is selected but matches exist.
+    fn clamp_selection(&mut self) {
+        let len = self.visible().len();
+        if len == 0 {
+            self.selected.select(None);
+        } else {
+            let current = self.selected.selected().unwrap_or(0);
+            self.selected.select(Some(current.min(len - 1)));
+        }
     }
 
     /// Spawn a background scan; results arrive on `results_rx`.
@@ -59,19 +86,18 @@ impl App {
         while let Ok(hosts) = self.results_rx.try_recv() {
             self.hosts = hosts;
             self.scanning = false;
-            if self.hosts.is_empty() {
-                self.selected.select(None);
-            } else {
-                self.selected.select(Some(0));
-            }
         }
+        if self.selected.selected().is_none() && !self.visible().is_empty() {
+            self.selected.select(Some(0));
+        }
+        self.clamp_selection();
     }
 
     fn move_selection(&mut self, delta: isize) {
-        if self.hosts.is_empty() {
+        let len = self.visible().len();
+        if len == 0 {
             return;
         }
-        let len = self.hosts.len();
         let current = self.selected.selected().unwrap_or(0) as isize;
         let next = (current + delta).rem_euclid(len as isize) as usize;
         self.selected.select(Some(next));
@@ -101,8 +127,35 @@ fn run_loop(terminal: &mut DefaultTerminal, mut app: App) -> std::io::Result<()>
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
+                if app.input_mode {
+                    // While typing, keys edit the filter rather than run commands.
+                    match key.code {
+                        KeyCode::Enter => app.input_mode = false,
+                        KeyCode::Esc => {
+                            app.input_mode = false;
+                            app.filter.clear();
+                        }
+                        KeyCode::Backspace => {
+                            app.filter.pop();
+                        }
+                        KeyCode::Char(c) => app.filter.push(c),
+                        _ => {}
+                    }
+                    // Re-anchor the selection to the first match as the filter changes.
+                    app.selected.select(None);
+                    continue;
+                }
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Esc => {
+                        // Esc clears an active filter first, then quits.
+                        if app.filter.is_empty() {
+                            return Ok(());
+                        }
+                        app.filter.clear();
+                        app.selected.select(None);
+                    }
+                    KeyCode::Char('/') => app.input_mode = true,
                     KeyCode::Char('r') => app.start_scan(),
                     KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
                     KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
@@ -123,23 +176,33 @@ fn draw(frame: &mut Frame, app: &mut App) {
 
     draw_header(frame, app, chunks[0]);
     draw_table(frame, app, chunks[1]);
-    draw_footer(frame, chunks[2]);
+    draw_footer(frame, chunks[2], app);
 }
 
 fn draw_header(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let status = if app.scanning { "scanning..." } else { "done" };
-    let line = Line::from(vec![
+    let shown = app.visible().len();
+    let count = if app.filter.is_empty() {
+        format!("{} host(s)   ", app.hosts.len())
+    } else {
+        format!("{shown}/{} host(s)   ", app.hosts.len())
+    };
+    let mut spans = vec![
         " LAN Scan ".bold().bg(Color::Cyan).fg(Color::Black),
         format!("  {}   ", app.cfg.cidr).into(),
-        format!("{} host(s)   ", app.hosts.len()).fg(Color::Green),
+        count.fg(Color::Green),
         format!("[{status}]").fg(if app.scanning {
             Color::Yellow
         } else {
             Color::DarkGray
         }),
-    ]);
+    ];
+    if app.input_mode || !app.filter.is_empty() {
+        let cursor = if app.input_mode { "_" } else { "" };
+        spans.push(format!("   filter: {}{cursor}", app.filter).fg(Color::Cyan));
+    }
     let block = Block::default().borders(Borders::ALL).title(" lanscan ");
-    frame.render_widget(Paragraph::new(line).block(block), area);
+    frame.render_widget(Paragraph::new(Line::from(spans)).block(block), area);
 }
 
 fn draw_table(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
@@ -150,8 +213,8 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     );
 
     let rows: Vec<Row> = app
-        .hosts
-        .iter()
+        .visible()
+        .into_iter()
         .map(|host| {
             let ports = if host.open_ports.is_empty() {
                 "-".to_string()
@@ -192,10 +255,13 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
 
     frame.render_stateful_widget(table, area, &mut app.selected);
 
-    if app.hosts.is_empty() && !app.scanning {
-        let hint = Paragraph::new("No live hosts found. Press 'r' to rescan.")
-            .fg(Color::DarkGray)
-            .centered();
+    if app.visible().is_empty() && !app.scanning {
+        let message = if app.hosts.is_empty() {
+            "No live hosts found. Press 'r' to rescan."
+        } else {
+            "No hosts match the filter. Press Esc to clear."
+        };
+        let hint = Paragraph::new(message).fg(Color::DarkGray).centered();
         frame.render_widget(
             hint,
             area.inner(Margin {
@@ -206,15 +272,28 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     }
 }
 
-fn draw_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
-    let line = Line::from(vec![
-        " r ".bg(Color::Cyan).fg(Color::Black),
-        " rescan   ".into(),
-        " up/down ".bg(Color::Cyan).fg(Color::Black),
-        " select   ".into(),
-        " q ".bg(Color::Cyan).fg(Color::Black),
-        " quit ".into(),
-    ]);
+fn draw_footer(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
+    let line = if app.input_mode {
+        Line::from(vec![
+            " type ".bg(Color::Cyan).fg(Color::Black),
+            " filter   ".into(),
+            " Enter ".bg(Color::Cyan).fg(Color::Black),
+            " apply   ".into(),
+            " Esc ".bg(Color::Cyan).fg(Color::Black),
+            " clear ".into(),
+        ])
+    } else {
+        Line::from(vec![
+            " r ".bg(Color::Cyan).fg(Color::Black),
+            " rescan   ".into(),
+            " / ".bg(Color::Cyan).fg(Color::Black),
+            " filter   ".into(),
+            " up/down ".bg(Color::Cyan).fg(Color::Black),
+            " select   ".into(),
+            " q ".bg(Color::Cyan).fg(Color::Black),
+            " quit ".into(),
+        ])
+    };
     frame.render_widget(
         Paragraph::new(line).block(Block::default().borders(Borders::ALL)),
         area,

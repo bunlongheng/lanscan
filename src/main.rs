@@ -53,6 +53,11 @@ struct ScanArgs {
     #[command(flatten)]
     net: NetArgs,
 
+    /// Only show hosts matching this text (case-insensitive) in any field:
+    /// IP, MAC, hostname, vendor, or port/service.
+    #[arg(short, long)]
+    filter: Option<String>,
+
     /// Emit results as JSON instead of a table.
     #[arg(long)]
     json: bool,
@@ -121,6 +126,7 @@ fn default_command() -> Command {
     } else {
         Command::Scan(ScanArgs {
             net: NetArgs::default(),
+            filter: None,
             json: false,
         })
     }
@@ -128,11 +134,15 @@ fn default_command() -> Command {
 
 fn run_scan(args: ScanArgs) -> Result<(), String> {
     let json = args.json;
+    let filter = args.filter;
     let cfg = args.net.into_config()?;
     if !json {
         eprintln!("Scanning {} ...", cfg.cidr);
     }
-    let hosts = scan(&cfg);
+    let mut hosts = scan(&cfg);
+    if let Some(needle) = &filter {
+        hosts.retain(|host| host.matches(needle));
+    }
     if json {
         println!("{}", to_json(&hosts).map_err(|e| e.to_string())?);
     } else {
