@@ -53,12 +53,18 @@ lanscan scan --cidr 192.168.1.0/24 --ports 22,80,443 --json
 
 # Tune the probe
 lanscan scan --cidr 192.168.1.0/24 --timeout-ms 300 --concurrency 512
+
+# Filter results across any field (IP, MAC, hostname, vendor, port/service)
+lanscan scan --filter amazon      # only Amazon devices
+lanscan scan -f http              # only hosts with an HTTP port
+lanscan scan -f 88:57             # only a MAC prefix
 ```
 
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--cidr` | local /24 | Network to scan, e.g. `192.168.1.0/24` |
 | `--ports` | common set | Comma-separated TCP ports to probe |
+| `--filter`, `-f` | off | Show only hosts matching this text (case-insensitive) in any field |
 | `--timeout-ms` | 400 | Per-connection timeout |
 | `--concurrency` | 256 | Max concurrent probes |
 | `--json` | off | Emit JSON instead of a table |
@@ -69,7 +75,8 @@ lanscan scan --cidr 192.168.1.0/24 --timeout-ms 300 --concurrency 512
 lanscan tui
 ```
 
-`r` rescans, arrow keys (or `j`/`k`) move the selection, `q`/`Esc` quits.
+`r` rescans, `/` filters (type to narrow across every field, `Enter` applies,
+`Esc` clears), arrow keys (or `j`/`k`) move the selection, `q` quits.
 
 ### MCP server
 

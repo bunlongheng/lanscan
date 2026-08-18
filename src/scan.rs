@@ -36,6 +36,37 @@ pub struct Host {
     pub open_ports: Vec<Port>,
 }
 
+impl Host {
+    /// Case-insensitive substring match across every displayed field: IP, MAC,
+    /// hostname, vendor, and each open port's number and service name. An empty
+    /// needle matches everything. Used by the CLI `--filter` flag and the TUI
+    /// live filter so both search identically.
+    #[must_use]
+    pub fn matches(&self, needle: &str) -> bool {
+        let needle = needle.trim().to_lowercase();
+        if needle.is_empty() {
+            return true;
+        }
+        let mut hay = self.ip.to_string();
+        for value in [&self.mac, &self.hostname, &self.vendor]
+            .into_iter()
+            .flatten()
+        {
+            hay.push(' ');
+            hay.push_str(value);
+        }
+        for port in &self.open_ports {
+            hay.push(' ');
+            hay.push_str(&port.port.to_string());
+            if let Some(service) = &port.service {
+                hay.push(' ');
+                hay.push_str(service);
+            }
+        }
+        hay.to_lowercase().contains(&needle)
+    }
+}
+
 /// Parameters controlling a scan.
 #[derive(Debug, Clone)]
 pub struct ScanConfig {
@@ -317,5 +348,26 @@ mod tests {
             Some("printer.local".to_string()),
         );
         assert_eq!(host.hostname.as_deref(), Some("printer.local"));
+    }
+
+    #[test]
+    fn filter_matches_across_all_fields() {
+        let host = Host {
+            ip: Ipv4Addr::new(10, 0, 0, 22),
+            mac: Some("DC:E9:94:96:48:DB".to_string()),
+            hostname: Some("printer.local".to_string()),
+            vendor: Some("Foxconn".to_string()),
+            open_ports: vec![Port {
+                port: 9100,
+                service: Some("printer-raw".to_string()),
+            }],
+        };
+        assert!(host.matches("")); // empty matches everything
+        assert!(host.matches("10.0.0.22")); // IP
+        assert!(host.matches("dc:e9")); // MAC, case-insensitive
+        assert!(host.matches("PRINTER")); // hostname/service, case-insensitive
+        assert!(host.matches("foxconn")); // vendor
+        assert!(host.matches("9100")); // port number
+        assert!(!host.matches("apple")); // no match
     }
 }
