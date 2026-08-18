@@ -1,0 +1,67 @@
+# CircleCI config for lanscan.
+#
+# NOTE: This file is dormant. It runs nothing and costs nothing until the repo
+# is connected on https://app.circleci.com. Until the monthly billing quota is
+# resolved, leave the project unfollowed there and run CI manually with
+# `./scripts/ci.sh` (see README > Development).
+
+version: 2.1
+
+jobs:
+  test:
+    docker:
+      - image: cimg/rust:1.85
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-{{ checksum "Cargo.lock" }}
+      - run:
+          name: Format
+          command: cargo fmt --all --check
+      - run:
+          name: Clippy
+          command: cargo clippy --all-targets -- -D warnings
+      - run:
+          name: Test
+          command: cargo test --all
+      - save_cache:
+          key: cargo-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+            - target
+
+  release:
+    docker:
+      - image: cimg/rust:1.85
+    steps:
+      - checkout
+      - run:
+          name: Build release binary
+          command: cargo build --release --target x86_64-unknown-linux-gnu
+      - run:
+          name: Package
+          command: |
+            tar -C target/x86_64-unknown-linux-gnu/release -czf \
+              lanscan-x86_64-unknown-linux-gnu.tar.gz lanscan
+      - run:
+          name: Upload to GitHub release
+          command: |
+            gh release upload "$CIRCLE_TAG" \
+              lanscan-x86_64-unknown-linux-gnu.tar.gz --clobber
+      - store_artifacts:
+          path: lanscan-x86_64-unknown-linux-gnu.tar.gz
+
+workflows:
+  ci:
+    jobs:
+      - test
+
+  release:
+    jobs:
+      - release:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
