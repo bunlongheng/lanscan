@@ -167,6 +167,26 @@ CI is defined in `.circleci/config.yml` but is currently **run manually** via
 the monthly billing quota resets; connecting it on
 [app.circleci.com](https://app.circleci.com) is all that is needed to activate it.
 
+## Project layout
+
+```
+src/
+  main.rs       # CLI entry point: scan / tui / mcp subcommands, arg parsing
+  lib.rs        # library root re-exporting the modules below
+  net.rs        # local-IP discovery and CIDR expansion
+  scan.rs       # core engine: probe pool, ARP + mDNS enrichment, host assembly
+  arp.rs        # system ARP-cache reader and BSD/Linux `arp -a` parser
+  vendor.rs     # packed OUI -> vendor table (~8.5k prefixes), binary search
+  services.rs   # well-known port -> service names and the default scan set
+  output.rs     # table and JSON renderers for scan results
+  tui.rs        # ratatui live UI: table, per-field filter, device icons
+  mcp.rs        # hand-rolled Model Context Protocol server over stdio
+tests/
+  cli.rs        # end-to-end tests driving the built binary
+scripts/
+  ci.sh         # the manual CI gate: fmt check + clippy + tests
+```
+
 ## License
 
 [MIT](LICENSE) © Bunlong Heng
