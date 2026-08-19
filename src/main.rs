@@ -25,6 +25,37 @@ enum Command {
     Tui(NetArgs),
     /// Run the Model Context Protocol server over stdio.
     Mcp,
+    /// Serve a local web UI and JSON API for scanning from a browser.
+    Serve(ServeArgs),
+    /// List every device ever seen, marking which are online now.
+    Inventory(InventoryArgs),
+}
+
+/// Arguments for the `inventory` subcommand.
+#[derive(clap::Args)]
+struct InventoryArgs {
+    /// Only show devices that are currently offline (missing from the last scan).
+    #[arg(long)]
+    offline: bool,
+
+    /// Emit the inventory as JSON instead of a table.
+    #[arg(long)]
+    json: bool,
+}
+
+/// Arguments for the `serve` subcommand.
+#[derive(clap::Args)]
+struct ServeArgs {
+    #[command(flatten)]
+    net: NetArgs,
+
+    /// Address to bind (default: localhost only).
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+
+    /// TCP port to listen on.
+    #[arg(long, default_value_t = 8787)]
+    port: u16,
 }
 
 /// Network-selection arguments shared by `scan` and `tui`.
@@ -61,6 +92,10 @@ struct ScanArgs {
     /// Emit results as JSON instead of a table.
     #[arg(long)]
     json: bool,
+
+    /// Do not record this scan into the device inventory.
+    #[arg(long)]
+    no_save: bool,
 }
 
 impl Default for NetArgs {
@@ -106,6 +141,8 @@ fn main() -> ExitCode {
         Command::Scan(args) => run_scan(args),
         Command::Tui(net) => run_tui(net),
         Command::Mcp => lanscan::mcp::serve_stdio().map_err(|e| e.to_string()),
+        Command::Serve(args) => run_serve(args),
+        Command::Inventory(args) => run_inventory(args),
     };
 
     match result {
@@ -128,6 +165,7 @@ fn default_command() -> Command {
             net: NetArgs::default(),
             filter: None,
             json: false,
+            no_save: false,
         })
     }
 }
@@ -135,11 +173,17 @@ fn default_command() -> Command {
 fn run_scan(args: ScanArgs) -> Result<(), String> {
     let json = args.json;
     let filter = args.filter;
+    let no_save = args.no_save;
     let cfg = args.net.into_config()?;
     if !json {
         eprintln!("Scanning {} ...", cfg.cidr);
     }
     let mut hosts = scan(&cfg);
+    // Record the full result set (pre-filter) so the inventory reflects the
+    // whole network, then narrow the display to the filter.
+    if !no_save {
+        lanscan::inventory::persist_scan(&hosts);
+    }
     if let Some(needle) = &filter {
         hosts.retain(|host| host.matches(needle));
     }
@@ -154,4 +198,109 @@ fn run_scan(args: ScanArgs) -> Result<(), String> {
 fn run_tui(net: NetArgs) -> Result<(), String> {
     let cfg = net.into_config()?;
     lanscan::tui::run(cfg).map_err(|e| e.to_string())
+}
+
+fn run_serve(args: ServeArgs) -> Result<(), String> {
+    let host = args.host.clone();
+    let port = args.port;
+    let cfg = args.net.into_config()?;
+    lanscan::serve::run(cfg, &host, port).map_err(|e| e.to_string())
+}
+
+fn run_inventory(args: InventoryArgs) -> Result<(), String> {
+    use lanscan::inventory::{Inventory, default_path};
+
+    let Some(path) = default_path() else {
+        return Err("no home directory; set LANSCAN_INVENTORY to a file path".to_string());
+    };
+    let inventory = Inventory::load(&path);
+    let now = lanscan::inventory::now_secs();
+
+    let mut devices = inventory.sorted();
+    if args.offline {
+        devices.retain(|device| !inventory.is_online(device));
+    }
+
+    if args.json {
+        let rows: Vec<_> = devices
+            .iter()
+            .map(|device| {
+                serde_json::json!({
+                    "key": device.key,
+                    "ip": device.ip,
+                    "mac": device.mac,
+                    "hostname": device.hostname,
+                    "vendor": device.vendor,
+                    "open_ports": device.open_ports,
+                    "online": inventory.is_online(device),
+                    "first_seen": device.first_seen,
+                    "last_seen": device.last_seen,
+                    "times_seen": device.times_seen,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())?
+        );
+        return Ok(());
+    }
+
+    if devices.is_empty() {
+        println!("No devices recorded yet. Run `lanscan scan` first.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<8}  {:<15}  {:<17}  {:<18}  {:<18}  LAST SEEN",
+        "STATUS", "IP", "MAC", "HOSTNAME", "VENDOR"
+    );
+    for device in &devices {
+        let status = if inventory.is_online(device) {
+            "online".to_string()
+        } else {
+            "offline".to_string()
+        };
+        let seen = if inventory.is_online(device) {
+            "now".to_string()
+        } else {
+            ago(now.saturating_sub(device.last_seen))
+        };
+        println!(
+            "{:<8}  {:<15}  {:<17}  {:<18}  {:<18}  {}",
+            status,
+            device.ip,
+            device.mac.as_deref().unwrap_or("-"),
+            trunc(device.hostname.as_deref().unwrap_or("-"), 18),
+            trunc(device.vendor.as_deref().unwrap_or("-"), 18),
+            seen,
+        );
+    }
+    let online = devices.iter().filter(|d| inventory.is_online(d)).count();
+    println!(
+        "\n{} device(s): {online} online, {} offline.",
+        devices.len(),
+        devices.len() - online
+    );
+    Ok(())
+}
+
+/// Render a seconds duration as a compact "N unit ago" string.
+fn ago(secs: u64) -> String {
+    match secs {
+        s if s < 60 => format!("{s}s ago"),
+        s if s < 3_600 => format!("{}m ago", s / 60),
+        s if s < 86_400 => format!("{}h ago", s / 3_600),
+        s => format!("{}d ago", s / 86_400),
+    }
+}
+
+/// Truncate a string to `width` characters, adding an ellipsis when clipped.
+fn trunc(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        text.to_string()
+    } else {
+        let keep: String = text.chars().take(width.saturating_sub(1)).collect();
+        format!("{keep}…")
+    }
 }
