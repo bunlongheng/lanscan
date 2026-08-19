@@ -82,6 +82,10 @@ fn handle(stream: TcpStream, base: &ScanConfig) -> std::io::Result<()> {
 
     match path {
         "/" => respond(&mut writer, 200, "text/html; charset=utf-8", INDEX_HTML.as_bytes()),
+        "/icon.png" | "/favicon.ico" | "/apple-touch-icon.png" | "/apple-touch-icon-precomposed.png" => {
+            respond_cached(&mut writer, "image/png", ICON_PNG)
+        }
+        "/manifest.webmanifest" => respond(&mut writer, 200, "application/manifest+json", MANIFEST.as_bytes()),
         "/health" => {
             let body = json!({ "status": "ok", "version": VERSION }).to_string();
             respond(&mut writer, 200, JSON, body.as_bytes())
@@ -253,6 +257,21 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Serve a static asset with a long cache lifetime (icons never change per build).
+fn respond_cached(stream: &mut TcpStream, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+    let header = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: {content_type}\r\n\
+         Content-Length: {}\r\n\
+         Cache-Control: public, max-age=86400\r\n\
+         Connection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(header.as_bytes())?;
+    stream.write_all(body)?;
+    stream.flush()
+}
+
 /// Write a complete HTTP/1.1 response and close the connection.
 fn respond(
     stream: &mut TcpStream,
@@ -283,6 +302,25 @@ fn respond(
 /// The self-contained web UI, served at `/`. Inline CSS and JS only, so it
 /// needs no external assets and works offline.
 const INDEX_HTML: &str = include_str!("serve_ui.html");
+
+/// The app icon (512x512 PNG), served for the favicon, the iOS/Android
+/// add-to-home-screen tile, and the web-app manifest.
+const ICON_PNG: &[u8] = include_bytes!("icon.png");
+
+/// The web-app manifest enabling "add to home screen" as a standalone app.
+const MANIFEST: &str = r##"{
+  "name": "LAN Scan",
+  "short_name": "LAN Scan",
+  "description": "Local network scanner",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
+  ]
+}"##;
 
 #[cfg(test)]
 mod tests {
