@@ -51,11 +51,34 @@
   .muted{color:#42506b}
   .ico{font-size:16px}
   .disc{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
-    border-radius:50%;vertical-align:middle}
+    border-radius:50%;vertical-align:middle;flex:none}
+  .vend{display:inline-flex;align-items:center;gap:9px}
+  .vend .ico{font-size:15px}
   .pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;letter-spacing:.03em}
   .pill.on{background:rgba(74,222,128,.16);color:var(--green)}
   .pill.off{background:rgba(255,143,143,.14);color:var(--red)}
   .empty{padding:40px;text-align:center;color:var(--dim)}
+  /* scanning radar */
+  .scanning{display:flex;flex-direction:column;align-items:center;padding:34px 0 44px}
+  .radar{position:relative;width:230px;height:230px;border-radius:50%;
+    background:radial-gradient(circle at 50% 50%, rgba(103,232,249,.09), transparent 72%)}
+  .radar .ring{position:absolute;border:1px solid rgba(103,232,249,.18);border-radius:50%;inset:0}
+  .radar .ring.r2{inset:38px}.radar .ring.r3{inset:76px}
+  .radar .cross{position:absolute;background:rgba(103,232,249,.13)}
+  .radar .cross.h{left:0;right:0;top:50%;height:1px}
+  .radar .cross.v{top:0;bottom:0;left:50%;width:1px}
+  .radar .sweep{position:absolute;inset:0;border-radius:50%;transform-origin:50% 50%;
+    background:conic-gradient(from 0deg, rgba(103,232,249,.5), rgba(103,232,249,.06) 55deg, transparent 95deg);
+    animation:sweep 1.6s linear infinite}
+  @keyframes sweep{to{transform:rotate(360deg)}}
+  .radar .core{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px;border-radius:50%;
+    background:var(--cyan);box-shadow:0 0 16px var(--cyan)}
+  .radar .blip{position:absolute;width:8px;height:8px;margin:-4px;border-radius:50%;
+    box-shadow:0 0 10px currentColor;opacity:0;animation:blip 1.6s ease-in-out infinite}
+  @keyframes blip{0%,100%{opacity:0;transform:scale(.4)}28%,58%{opacity:1;transform:scale(1)}}
+  .scanmsg{margin-top:24px;font-family:var(--mono);color:var(--dim);font-size:14px;letter-spacing:.03em}
+  .scanmsg b{color:var(--cyan)}
+  .scanmsg i{display:inline-block;width:16px;text-align:left;font-style:normal;color:var(--cyan)}
   .foot{color:#54617e;font-size:12px;text-align:center;margin-top:16px}
   mark{background:var(--cyan);color:#08111f;border-radius:3px;padding:0 1px}
   .err{color:var(--red)}
@@ -181,7 +204,12 @@
     }
     return null;
   };
-  const iconCell = h => brandDisc(h.vendor) || `<span class="ico">${devEmoji(h)}</span>`;
+  // Vendor cell with the brand logo (or device emoji) inline before the name.
+  const vendorCell = (h, f) => {
+    if (!h.vendor) return `<td class="muted">-</td>`;
+    const ic = brandDisc(h.vendor) || `<span class="ico">${devEmoji(h)}</span>`;
+    return `<td><span class="vend">${ic}<span>${hl(h.vendor,f)}</span></span></td>`;
+  };
 
   // --- helpers -------------------------------------------------------------
   const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -201,9 +229,9 @@
     $("count").textContent = f ? `${rows.length}/${hosts.length}` : hosts.length;
     if(!rows.length){ $("body").innerHTML = `<div class="empty">${hosts.length?"No hosts match the filter.":"No live hosts found."}</div>`; return; }
     $("body").innerHTML = `<table><thead><tr>
-      <th></th><th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th><th>Open ports</th>
+      <th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th><th>Open ports</th>
     </tr></thead><tbody>${rows.map(h=>`<tr>
-      <td>${iconCell(h)}</td>${td(h.ip,f,"ip")}${td(h.mac,f)}${td(h.hostname,f,"host")}${td(h.vendor,f)}
+      ${td(h.ip,f,"ip")}${td(h.mac,f)}${td(h.hostname,f,"host")}${vendorCell(h,f)}
       ${portsText(h)?`<td class="ports">${hl(portsText(h),f)}</td>`:`<td class="muted">-</td>`}
     </tr>`).join("")}</tbody></table>`;
   }
@@ -217,10 +245,10 @@
     $("counts").innerHTML = `<b>${online}</b> online, ${rows.length-online} offline`;
     if(!rows.length){ $("body").innerHTML = `<div class="empty">No devices recorded yet. Run a scan first.</div>`; return; }
     $("body").innerHTML = `<table><thead><tr>
-      <th>Status</th><th></th><th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th><th>Last seen</th><th>Open ports</th>
+      <th>Status</th><th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th><th>Last seen</th><th>Open ports</th>
     </tr></thead><tbody>${rows.map(h=>`<tr>
       <td>${h.online?`<span class="pill on">online</span>`:`<span class="pill off">offline</span>`}</td>
-      <td>${iconCell(h)}</td>${td(h.ip,f,"ip")}${td(h.mac,f)}${td(h.hostname,f,"host")}${td(h.vendor,f)}
+      ${td(h.ip,f,"ip")}${td(h.mac,f)}${td(h.hostname,f,"host")}${vendorCell(h,f)}
       <td class="muted">${h.online?"now":ago(Math.max(0,invNow-(h.last_seen||0)))}</td>
       ${portsText(h)?`<td class="ports">${hl(portsText(h),f)}</td>`:`<td class="muted">-</td>`}
     </tr>`).join("")}</tbody></table>`;
@@ -228,14 +256,31 @@
 
   const render = () => mode==="live" ? renderLive() : renderHistory();
 
+  // --- scanning radar ------------------------------------------------------
+  let dotTimer = null;
+  function showScanning(cidr){
+    const blips = [[72,30],[30,42],[63,66],[44,74],[80,54],[24,63]];
+    $("body").innerHTML = `<div class="scanning"><div class="radar">
+      <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
+      <span class="cross h"></span><span class="cross v"></span>
+      <span class="sweep"></span><span class="core"></span>
+      ${blips.map((b,i)=>{const c=i%2?"var(--orange)":"var(--green)";
+        return `<span class="blip" style="left:${b[0]}%;top:${b[1]}%;background:${c};color:${c};animation-delay:${(i*0.24).toFixed(2)}s"></span>`;}).join("")}
+    </div><div class="scanmsg">Scanning <b>${esc(cidr)}</b><i id="sd"></i></div></div>`;
+    clearInterval(dotTimer);
+    let n = 0;
+    dotTimer = setInterval(() => { n = (n+1)%4; const e = $("sd"); if(e) e.textContent = ".".repeat(n); }, 380);
+  }
+
   // --- actions -------------------------------------------------------------
   let running = false;
   async function scan(){
     if(running) return; running = true; mode="live"; setTabs();
     $("scan").disabled=true; $("dot").className="dot live"; $("state").textContent="scanning..."; $("error").textContent="";
     $("counts").innerHTML = `<b id="count">0</b> host(s)`;
-    const q = new URLSearchParams();
     const cidr=$("cidr").value.trim(), ports=$("ports").value.trim();
+    showScanning(cidr || $("cidr").placeholder || "the local network");
+    const q = new URLSearchParams();
     if(cidr) q.set("cidr",cidr); if(ports) q.set("ports",ports);
     try{
       const r = await fetch("/api/scan?"+q.toString()); const data = await r.json();
@@ -243,7 +288,7 @@
       hosts = data.hosts||[]; $("net").textContent = data.cidr||"-";
       $("took").textContent = data.elapsed_ms!=null ? `in ${data.elapsed_ms} ms` : ""; renderLive();
     }catch(e){ $("error").textContent=e.message; $("body").innerHTML=`<div class="empty err">Scan failed: ${esc(e.message)}</div>`; }
-    finally{ running=false; $("scan").disabled=false; $("dot").className="dot"; $("state").textContent="done"; }
+    finally{ clearInterval(dotTimer); running=false; $("scan").disabled=false; $("dot").className="dot"; $("state").textContent="done"; }
   }
 
   async function history(){
