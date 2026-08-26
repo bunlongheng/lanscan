@@ -1,3 +1,13 @@
+<div align="center">
+  <img src="docs/icon.png" alt="LAN Scan" width="96" height="96" />
+  <h1>LAN Scan</h1>
+  <p><em>Pure-Rust home LAN scanner - one engine, three faces: CLI, live TUI, and an MCP server for agents</em></p>
+  <p><a href="https://github.com/bunlongheng/lanscan">Repo</a> &middot; <a href="https://bunlongheng.com/projects?name=lanscan">Portfolio</a></p>
+  <img src="docs/social-preview.png" alt="LAN Scan - preview" width="820" />
+</div>
+
+---
+
 # LAN Scan
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
